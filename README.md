@@ -1,6 +1,6 @@
 # Phân tích Mạng xã hội Người nổi tiếng & Dự đoán Mối liên kết
 
-**Dự án Khóa luận Tốt nghiệp của Nhóm 3:**
+**Dự án của Nhóm 3:**
 * **Quân:** Extractor
 * **Tân:** Transformer / AI Lead
 * **Quang:** Loader / App Lead
