@@ -1,4 +1,4 @@
-# Phân tích Mạng xã hội Người nổi tiếng & Dự đoán Mối liên kết (KLTN 2025)
+# Phân tích Mạng xã hội Người nổi tiếng & Dự đoán Mối liên kết
 
 **Dự án Khóa luận Tốt nghiệp của Nhóm 3:**
 * **Quân:** Extractor
@@ -64,8 +64,8 @@ Dự án được chia thành 3 phần chính, tương ứng với 3 thành viê
 
 1.  **Clone (Tải về) kho chứa:**
     ```bash
-    git clone https://[URL-CUA-BAN]/KLTN-Link-Prediction.git
-    cd KLTN-Link-Prediction
+    git clone https://[URL-CUA-BAN]/Social-Link-Prediction.git
+    cd Social-Link-Prediction
     ```
 
 2.  **Tạo môi trường ảo (Khuyến nghị):**
