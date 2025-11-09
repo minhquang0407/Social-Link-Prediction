@@ -1,13 +1,15 @@
 import pandas as pd
 import networkx as nx
 import json
+import pickle
 from pathlib import Path
+
 
 def load_sparql_result(raw_filepath: str) -> pd.DataFrame:
     """
     Đọc file JSON thô từ SPARQL và "làm phẳng" (flatten) cấu trúc
     results.bindings để tạo DataFrame.
-    [cite: 89]
+    [cite_start][cite: 89]
     """
     print(f"Đang đọc file: {raw_filepath}")
     try:
@@ -15,22 +17,40 @@ def load_sparql_result(raw_filepath: str) -> pd.DataFrame:
         with open(raw_filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # 2. Làm phẳng cấu trúc lồng nhau
-        # Dữ liệu hữu ích nằm trong ['results']['bindings']
-        # Dùng pandas.json_normalize như kế hoạch [cite: 90]
+        # [cite_start]2. Làm phẳng cấu trúc lồng nhau [cite: 90]
+        # Đây là bước tạo ra các cột 'person.value', 'personLabel.value', v.v.
         df = pd.json_normalize(data['results']['bindings'])
 
-        # 3. Dọn dẹp dữ liệu (Rất quan trọng)
-        # SPARQL trả về dạng {'type': 'uri', 'value': '...'}
-        # Chúng ta chỉ muốn lấy 'value'
+        # 3. Dọn dẹp dữ liệu (PHẦN ĐƯỢC SỬA)
+        # Chúng ta cần đổi tên các cột có đuôi '.value'
 
-        # Lặp qua tất cả các cột
+        # Tạo một dictionary để map tên cũ sang tên mới
+        # Ví dụ: {'person.value': 'person', 'personLabel.value': 'personLabel'}
+        rename_map = {}
         for col in df.columns:
-            # Áp dụng hàm lambda để trích xuất 'value' nếu là dict
-            df[col] = df[col].apply(lambda x: x.get('value') if isinstance(x, dict) else x)
+            if col.endswith('.value'):
+                # Tạo tên mới bằng cách bỏ đi 4 ký tự cuối ('.value')
+                new_name = col[:-6]  # Bỏ '.value'
+                rename_map[col] = new_name
 
-        print(f"Làm phẳng {raw_filepath} thành công. (Số dòng: {len(df)})")
-        return df
+        # 4. Áp dụng đổi tên cột
+        df = df.rename(columns=rename_map)
+
+        # 5. Lọc DataFrame:
+        # Giờ đây chúng ta chỉ giữ lại các cột đã được đổi tên (các cột "sạch")
+        # và bỏ đi các cột .type, .xml:lang
+
+        # Lấy danh sách các tên cột "sạch" (ví dụ: ['person', 'spouse', 'personLabel', 'spouseLabel'])
+        final_clean_columns = list(rename_map.values())
+
+        # Lọc DataFrame để chỉ giữ lại các cột này
+        # (Thêm_ 'if col in df.columns' để phòng trường hợp query không trả về cột nào đó)
+        df_cleaned = df[[col for col in final_clean_columns if col in df.columns]]
+
+        print(f"Làm phẳng {raw_filepath} thành công. (Số dòng: {len(df_cleaned)})")
+        print(f"Các cột đã xử lý: {list(df_cleaned.columns)}")
+
+        return df_cleaned
 
     except FileNotFoundError:
         print(f"LỖI: Không tìm thấy file {raw_filepath}")
@@ -39,14 +59,13 @@ def load_sparql_result(raw_filepath: str) -> pd.DataFrame:
         print(f"LỖI: Cấu trúc JSON không đúng, không tìm thấy 'results.bindings'.")
         return pd.DataFrame()
     except Exception as e:
-        print(f"LỖI không xác định khi xử lý file {raw_filepath}: {e}")
+        print(f"LÃI không xác định khi xử lý file {raw_filepath}: {e}")
         return pd.DataFrame()
 
 
 def build_graph_v0_1(df: pd.DataFrame) -> nx.Graph:
     """
     Xây dựng đồ thị v0.1 từ DataFrame (vợ/chồng).
-
     """
     # Khởi tạo một đồ thị vô hướng
     G = nx.Graph()
@@ -100,10 +119,9 @@ def run_v0_1_pipeline():
     """
 
     # Đường dẫn file input (do Quân cung cấp)
-    # File này phải nằm cùng thư mục với file .py, hoặc bạn phải chỉ đúng đường dẫn
-    RAW_FILE = "raw_data_v0.1_spouse.json"  # [cite: 81] (Đây là file Quân tạo)
+    RAW_FILE = "raw_data_v0.1_spouse.json"  # [cite: 81]
 
-    # Đường dẫn file output (sản phẩm của bạn)
+    # Đường dẫn file output
     OUTPUT_GRAPH = "G_v0.1.gpickle"
 
     print("--- Bắt đầu Pipeline v0.1 ---")
@@ -117,7 +135,15 @@ def run_v0_1_pipeline():
 
         if G.number_of_nodes() > 0:
             # 3. Load (Save) [cite: 105]
-            nx.write_gpickle(G, OUTPUT_GRAPH)
+            # --- PHẦN SỬA LỖI ---
+            # DÒNG CŨ (BỊ LỖI): nx.write_gpickle(G, OUTPUT_GRAPH)
+
+            # DÒNG MỚI:
+            print(f"Đang lưu đồ thị vào {OUTPUT_GRAPH}...")
+            with open(OUTPUT_GRAPH, 'wb') as f:
+                pickle.dump(G, f)
+            # --- KẾT THÚC SỬA ---
+
             print(f"--- Pipeline v0.1 Hoàn tất! Đã lưu đồ thị vào {OUTPUT_GRAPH} ---")
         else:
             print(f"--- Pipeline v0.1 Thất bại! Đồ thị rỗng (có thể do sai tên cột). ---")
@@ -127,6 +153,4 @@ def run_v0_1_pipeline():
 
 # Thêm đoạn này vào cuối file để có thể chạy trực tiếp
 if __name__ == "__main__":
-    # Khi bạn chạy file này (bằng cách nhấn nút Run trong PyCharm),
-    # nó sẽ thực thi pipeline v0.1
     run_v0_1_pipeline()
