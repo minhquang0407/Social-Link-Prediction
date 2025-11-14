@@ -11,7 +11,8 @@ def load_sparql_result(raw_filepath: str) -> pd.DataFrame:
     results.bindings để tạo DataFrame.
     [cite_start][cite: 89]
     """
-    print(f"Đang đọc file: {raw_filepath}")
+    print(f"Đang đọ"
+          f"c file: {raw_filepath}")
     try:
         # 1. Đọc file JSON
         with open(raw_filepath, 'r', encoding='utf-8') as f:
