@@ -14,10 +14,32 @@ class GraphTransformer:
         self.person_interests_map = defaultdict(set)  # Dùng defaultdict(set)
         print("GraphTransformer initialized.")
 
+
+    def clean_data(self, df):
+        """
+        [MỚI] Hàm làm sạch dữ liệu:
+        Loại bỏ các dòng mà tên người (personLabel) bị lỗi hiển thị thành ID (ví dụ: Q12345).
+        """
+        if df.empty or 'personLabel' not in df.columns:
+            return df
+
+        original_count = len(df)
+
+        # Regex: ^Q\d+$ nghĩa là Bắt đầu bằng Q, theo sau là số, và kết thúc chuỗi.
+        # na=False nghĩa là nếu dữ liệu trống thì không coi là lỗi -> giữ lại.
+        mask_error = df['personLabel'].astype(str).str.fullmatch(r'^Q\d+$', na=False)
+
+        # Giữ lại những dòng KHÔNG bị lỗi (dấu ~ là phủ định)
+        df_clean = df[~mask_error]
+
+        removed_count = original_count - len(df_clean)
+        if removed_count > 0:
+            print(f"    [CLEAN] Đã loại bỏ {removed_count} dòng có tên lỗi dạng ID (Q123...).")
+        return df_clean
+
     def _load_and_flatten_json(self, raw_filepath):
         """
-        Load file JSON và làm phẳng bằng json_normalize.
-        Trả về DataFrame đã được làm sạch.
+        Load file JSON, làm phẳng VÀ LÀM SẠCH (CLEAN) ngay lập tức.
         """
         try:
             with open(raw_filepath, 'r', encoding='utf-8') as f:
@@ -32,15 +54,21 @@ class GraphTransformer:
             if not data_to_normalize:
                 return pd.DataFrame()
 
-            # Làm phẳng JSON -> DataFrame
+            # 1. Làm phẳng JSON -> DataFrame
             df = pd.json_normalize(data_to_normalize)
 
-            # Làm sạch DataFrame: loại bỏ .value trong tên cột nếu có
+            # 2. Làm sạch tên cột (bỏ .value)
             df.columns = [col.replace('.value', '') for col in df.columns]
+
+            # THÊM DÒNG NÀY]
+            # 3. Gọi hàm làm sạch dữ liệu ngay tại đây
+            df = self.clean_data(df)
 
             return df
 
         except Exception as e:
+            # Lưu ý: Một số file có thể không có cột personLabel,
+            # hàm clean_data đã có check cột nên sẽ không gây lỗi.
             print(f"LỖI LOAD FILE {raw_filepath}: {e}")
             return pd.DataFrame()
 
