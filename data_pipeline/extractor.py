@@ -36,15 +36,16 @@ class WikidataExtractor:
         self.sparql.agent = user_agent
         self.sparql.setReturnFormat(JSON)
         self.sparql.setTimeout(300)
+        self.current_json_head = None
+        self.step = 2
 
     def _run_paginated_query(self, base_query: str, page_size=10000) -> list:
 
         page = 1
         all_bindings = []
-        json_head = None
         retry_count = 0
         offset_num = 0
-        max_retries = 30
+        max_retries = 20
         current_page_size = page_size
 
         while True:
@@ -66,8 +67,8 @@ class WikidataExtractor:
                 end_time = time.monotonic()
                 duration = end_time - start_time
 
-                if json_head is None:
-                    json_head = results["head"]
+                if self.current_json_head is None:
+                    self.current_json_head = results["head"]
                 bindings = results["results"]["bindings"]
 
                 retry_count = 0
@@ -93,7 +94,7 @@ class WikidataExtractor:
                     break
                 else:
                     if retry_count % 5 == 0 and retry_count > 0:
-                        sleep_time = 60 * (retry_count // 5)
+                        sleep_time = 10 * (retry_count // 5)
                     else:
                         sleep_time = 5 * retry_count
 
@@ -107,12 +108,11 @@ class WikidataExtractor:
 
         return all_bindings
 
-    @staticmethod
-    def _create_intervals(start_val, end_val, step=1) -> list:
+    def _create_intervals(self,start_val, end_val) -> list:
         intervals = []
         current_start = start_val
         while current_start < end_val:
-            current_end = current_start + step
+            current_end = current_start + self.step
             if current_end > end_val:
                 current_end = end_val
             intervals.append((current_start, current_end))
@@ -123,6 +123,7 @@ class WikidataExtractor:
         """
         Chạy query theo từng khoảng thời gian (Intervals).
         """
+        self.current_json_head = None  # thiết lập lại json_head trước khi chạy
         all_bindings = []
         intervals = self._create_intervals(start, end + 1)
 
@@ -145,15 +146,16 @@ class WikidataExtractor:
 
         return all_bindings
 
-    @staticmethod
-    def _save_data(all_bindings, name, output_dir="data"):
+
+    def _save_data(self, all_bindings, name, output_dir="data"):
         # đường dẫn cho file lưu truy vấn
         output_filename = os.path.join(output_dir, f"raw_data_{name}.json")
         # đường dẫn cho file ghi log
         log_file_path = os.path.join(output_dir, "query_log.txt")
 
+        head_data = self.current_json_head if self.current_json_head else {"vars": []}
         final_json_output = {
-            "head": {"vars": []},  # (Chúng ta chấp nhận vars rỗng hoặc có thể cải thiện sau)
+            "head": head_data,
             "results": {"bindings": all_bindings}
         }
 
@@ -166,11 +168,9 @@ class WikidataExtractor:
         except IOError as e:
             print(f"\n!!! LỖI KHI LƯU FILE: {e}", file=sys.stderr)
 
-        return output_filename
 
     def fetch_all_relationships(self, relationship_queries, start, end, output_dir="data"):
-        os.makedirs(output_dir, exist_ok=True)
-        all_data = {}
+        os.makedirs(output_dir, exist_ok=True) # kiểm tra thư mục có tồn tại không, nếu chưa thì tạo
         base_query = qt.BASE  # lấy khung truy vấn cơ bản từ class QueryTemplates
 
         for name, (snippet, page_size) in relationship_queries.items():
@@ -179,25 +179,16 @@ class WikidataExtractor:
             full_query = base_query.replace("##FIND_HOOK##", snippet) # thêm truy vấn  con
             all_bindings = self._run_interval_query(start, end, full_query, page_size) # chạy truy vấn
 
-            output_filename = self._save_data(all_bindings, name, output_dir)  # lưu kết quả
+            self._save_data(all_bindings, name, output_dir)  # lưu kết quả
 
-            try:
-                with open(output_filename, 'r', encoding='utf-8') as f:
-                    loaded_data = json.load(f)
-                    all_data[name] = loaded_data["results"]["bindings"]
-            except Exception as e:
-                print(f'Lỗi khi đọc file {output_filename}: {e}\n', file=sys.stderr)
-                all_data[name] = []
-
-            time.sleep(5)
+            time.sleep(1)
 
         print("\n*** HOÀN TẤT TẤT CẢ TRUY VẤN! ***")
-        return all_data
 
 
 if __name__ == "__main__":
     YOUR_USER_AGENT = "SocialLinkPredictionBot/1.0 (naqaq2005@gmail.com)"
-    OUTPUT_DIR = "data_output"
+    OUTPUT_DIR = os.path.join("..", "data_output")
 
     queries_to_run = qt().get_all_queries()
 
