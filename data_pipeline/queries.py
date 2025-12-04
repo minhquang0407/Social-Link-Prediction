@@ -3,14 +3,13 @@ class QueryTemplates:
     """
     Dùng để lưu trữ các chuỗi truy vấn (Constants).
     """
-    def __init__(self, page_size = 10000):
+    def __init__(self, page_size = 20000):
         self.page_size = page_size
     
     BASE = """
     SELECT 
-      ?person ?personLabel ?personDescription ?person_dob
-      ?birthPlaceLabel ?countryLabel  
-      ?object ?objectLabel ?objectDescription ?relationshipLabel
+      ?person ?personLabel ?personDescription(YEAR(?person_dob) AS ?birthYear) ?birthPlaceLabel
+      ?countryLabel ?object ?objectLabel ?objectDescription ?relationshipLabel
     WHERE {
         # 1. Neo & Lọc cơ bản
         ?person wdt:P31 wd:Q5. 
@@ -34,8 +33,6 @@ class QueryTemplates:
 
         SERVICE wikibase:label { 
             bd:serviceParam wikibase:language "vi,en". 
-            ?person schema:description ?personDescription.
-            ?object schema:description ?objectDescription. 
         }
     }
     ORDER BY ?person
