@@ -1,209 +1,227 @@
 import sys
 import os
-from pathlib import Path
-import itertools  # Dùng cho Grid Search
-
-# --- CẤU HÌNH ĐƯỜNG DẪN ---
-CURRENT_FILE = Path(__file__).resolve()
-PROJECT_ROOT = CURRENT_FILE.parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
+import itertools
+import json
 import torch
 import torch.nn.functional as F
+import pandas as pd
+import numpy as np
+from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
+
+# PyG Imports
 from torch_geometric.loader import LinkNeighborLoader
 from torch_geometric.nn import to_hetero
-from torch_geometric.transforms import RandomLinkSplit
-from sklearn.metrics import roc_auc_score
-from tqdm import tqdm
-import pickle
-import argparse
-import numpy as np
-import json
+import torch_geometric.transforms as T
+from torch_geometric.data import HeteroData
 
+# Project Imports
 from config.settings import (
-    GRAPH_PATH, MODEL_PATH, PYG_DATA_PATH, MAPPING_PATH, TRAINING_HISTORY_PATH,
-    INPUT_DIM, OUTPUT_DIM, BATCH_SIZE
+    GRAPH_PATH, MODEL_PATH, PYG_DATA_PATH, MAPPING_PATH,
+    CLEAN_DATA_PATH, TRAINING_HISTORY_PATH, BATCH_SIZE
 )
-from infrastructure.repositories.graph_repo import PickleGraphRepository
+from infrastructure.repositories.feature_repo import PyGDataRepository
 from core.ai.gnn_architecture import GraphSAGE
 from core.ai.data_processor import GraphDataProcessor
-from infrastructure.repositories.feature_repo import PyGDataRepository
-from infrastructure.repositories.model_repo import ModelRepository
-
-# --- 1. CHUẨN BỊ DỮ LIỆU ---
-def get_or_prepare_data(force_prepare=False):
-    """Tải hoặc tạo mới dữ liệu PyG."""
-    # TODO 1: Nếu không bắt buộc tạo lại.
-    if not force_prepare:
-        pass
-        # TODO 2: Khởi tạo PyGDataRepository để xử lý việc tải/lưu dữ liệu PyG.
-        # TODO 3: Thử tải dữ liệu HeteroData (data) và mapping từ disk.
-    # TODO 4: Nếu dữ liệu PyG chưa tồn tại (data is None) hoặc Bắt buộc tạo lại PyG:
-    if data is None or force_prepare:
-        print("⚠️ Chưa có dữ liệu PyG. Đang xử lý từ NetworkX...")
-        # TODO 5: Tải đồ thị NetworkX (G) từ PickleGraphRepository.
-        # TODO 6: Khởi tạo và sử dụng GraphDataProcessor để chuyển đổi G sang PyG HeteroData.
-        # TODO 7: Lưu dữ liệu PyG (data và mapping) mới tạo.
-
-    # TODO 8: Trả về dữ liệu PyG đã sẵn sàng.
-    return None
 
 
-# --- 2. CÁC HÀM HUẤN LUYỆN & ĐÁNH GIÁ ---
+# --- 1. CÁC HÀM TIỆN ÍCH XỬ LÝ DATA ---
+
+def sanitize_hetero_data(data):
+    """
+    Xóa các loại cạnh rỗng để tránh lỗi khi chạy Loader.
+    """
+    print("🧹 Đang dọn dẹp các loại cạnh rỗng...")
+    # TODO 1: Duyệt qua data.edge_types.
+    # Kiểm tra xem edge_index có tồn tại hoặc có rỗng không.
+    # Nếu rỗng thì xóa loại cạnh đó khỏi data (dùng del data[et]).
+    pass
+    return data
+
+
+def get_unified_edge_index(data, src_node_type='person', dst_node_type='person'):
+    """
+    Gộp tất cả các loại cạnh nối giữa Person-Person lại thành một 'Siêu cạnh'
+    để làm nhãn huấn luyện (Supervision Target).
+    """
+    print(f"🔗 Đang tổng hợp các cạnh nối giữa '{src_node_type}' và '{dst_node_type}':")
+    
+    # TODO 2: Duyệt qua data.edge_types.
+    # 1. Chỉ lấy cạnh nối src_node_type và dst_node_type.
+    # 2. Bỏ qua các cạnh nghịch đảo (bắt đầu bằng 'rev_') để tránh trùng lặp.
+    # 3. Thu thập edge_index vào một list.
+    
+    # TODO 3: Nối (Concat) tất cả edge_index lại theo chiều ngang (dim=1).
+    # TODO 4: Lọc bỏ các cạnh trùng lặp (dùng torch.unique).
+    
+    # Return về super_edge_index
+    return torch.empty(2, 0) # Placeholder
+
+
+def get_or_prepare_data():
+    """Tải và chuẩn bị dữ liệu (Undirected + Sanitize)."""
+    feature_repo = PyGDataRepository(PYG_DATA_PATH, MAPPING_PATH)
+    data, mapping = feature_repo.load_data()
+
+    if data is None:
+        print("⚠️ Chưa có dữ liệu PyG. Vui lòng chạy ETL trước!")
+        return None
+
+    # TODO 5: Thực hiện quy trình làm sạch và chuyển đổi đồ thị:
+    # 1. Gọi sanitize_hetero_data lần 1.
+    # 2. Chuyển đồ thị sang vô hướng (dùng T.ToUndirected()).
+    # 3. Gọi sanitize_hetero_data lần 2 (để dọn rác do ToUndirected sinh ra).
+
+    return data
+
+
+# --- 2. CÁC HÀM TRAIN & EVAL ---
 
 def train_epoch(model, loader, optimizer, device, target_edge_type):
     """Chạy 1 epoch huấn luyện."""
-    #TODO: Bật chế độ train cho model
     model.train()
     total_loss = 0
     total_examples = 0
 
-    # TODO 1: Lặp qua loader với tqdm.
     for batch in tqdm(loader, desc="Training", leave=False):
-        # TODO 2: Di chuyển batch sang device và reset gradient.
+        batch = batch.to(device)
 
-        # TODO 3: Forward Pass: Lấy embeddings Z dictionary (z_dict) từ model.
+        # TODO 6: Quan trọng - Ép kiểu dữ liệu (Data Type Casting)
+        # Kiểm tra batch.x_dict, nếu là Float16 thì ép về Float32 để tránh lỗi matmul.
 
-        # TODO 4: Trích xuất nhãn (edge_label) và chỉ mục cạnh (edge_label_index) cần dự đoán.
+        optimizer.zero_grad()
 
+        # TODO 7: Forward Pass
+        # 1. Đưa dữ liệu qua model để lấy z_dict (embedding).
+        # 2. Lấy edge_label_index và edge_label từ batch[target_edge_type].
+        
+        # TODO 8: Decode (Tính điểm tương đồng)
+        # Lấy embedding của node nguồn và node đích, thực hiện Dot Product.
 
-        # TODO 5: Decode (Tính điểm):
-        #         - Lấy loại node nguồn và đích từ target_edge_type.
-        #         - Lấy embeddings của node nguồn (z_src) và node đích (z_dst) tương ứng với edge_label_index.
-        #         - Tính điểm liên kết (score) bằng Dot Product (sum theo dim=-1).
+        # TODO 9: Tính Loss và Backprop
+        # Dùng binary_cross_entropy_with_logits.
+        # Gọi backward() và optimizer.step().
 
-        # TODO 6: Tính Loss (sử dụng F.binary_cross_entropy_with_logits).
+        # Cập nhật total_loss
+        pass
 
-        # TODO 7: Backward Pass và cập nhật tham số.
-
-        # TODO 8: Cập nhật tổng loss và số lượng mẫu.
-
-
-    # TODO 9: Trả về Loss trung bình.
-    return None
+    return total_loss / (total_examples + 1e-9)
 
 
 @torch.no_grad()
 def evaluate(model, loader, device, target_edge_type):
-    """Đánh giá mô hình (tính AUC)."""
+    """Đánh giá mô hình."""
     model.eval()
     preds = []
     ground_truths = []
 
-    # TODO 1: Lặp qua loader với tqdm (không tính toán gradient: @torch.no_grad).
     for batch in tqdm(loader, desc="Evaluating", leave=False):
         batch = batch.to(device)
 
-        # TODO 2: Forward Pass: Lấy embeddings Z dictionary.
-        # TODO 3: Trích xuất nhãn (edge_label) và chỉ mục cạnh (edge_label_index).
-        # TODO 4: Decode (Tính điểm):
-        #         - Lấy embeddings z_src, z_dst tương ứng.
-        #         - Tính score, sau đó áp dụng Sigmoid để chuyển thành xác suất [0, 1].
-        # TODO 5: Lưu trữ dự đoán (preds) và nhãn thực tế (ground_truths) về CPU/Numpy.
+        # TODO 10: Ép kiểu dữ liệu về Float32 (tương tự train_epoch).
 
-    # TODO 6: Nối (concatenate) các mảng lại và tính ROC AUC Score.
-    return roc_auc_score(np.concatenate(ground_truths), np.concatenate(preds))
+        # TODO 11: Forward Pass và Decode
+        # Tương tự train_epoch, nhưng KHÔNG tính loss, KHÔNG backprop.
+        # Lưu ý: Kết quả output cần qua hàm .sigmoid() để về xác suất [0, 1].
+
+        # Append kết quả vào preds và ground_truths
+        pass
+
+    # TODO 12: Tính ROC AUC Score dùng sklearn
+    return 0.0 # Placeholder
 
 
 # --- 3. CHIẾN LƯỢC CHẠY ---
 
-def train_one_config(data, config, device, target_edge_type, final_mode=False):
-    """
-    Huấn luyện mô hình với 1 bộ tham số cụ thể.
-    """
-    # TODO 1: Khởi tạo từ điển lịch sử và trích xuất tham số từ config.
-    history = {
-        "epoch": [],
-        "loss": [],
-        "val_auc": []
-    }
-
+def train_one_config(data, config, device, final_mode=False):
+    """Huấn luyện với 1 cấu hình cụ thể."""
     hidden_dim = config['hidden_dim']
     lr = config['lr']
     epochs = config['epochs']
 
-    print(f"\n⚙️ Cấu hình: Hidden={hidden_dim}, LR={lr}")
+    # --- CHUẨN BỊ DỮ LIỆU ---
+    # TODO 13: Gọi hàm get_unified_edge_index để tạo 'Siêu cạnh' cho việc training.
+    target_edge_type = ('person', 'super_link', 'person')
 
-    # TODO 2: Chia dữ liệu (RandomLinkSplit):
-        # TODO 2a: Nếu là Final Mode, dùng toàn bộ data cho train (val_loader = None).
-        # TODO 2b: Dùng RandomLinkSplit (10% Val, 10% Test) để chia data thành train/val/test.
-        # TODO 2c: Khởi tạo LinkNeighborLoader cho tập Validation (không shuffle, không neg_sampling_ratio).
+    # TODO 14: Chia dữ liệu (Split Train/Val)
+    # Nếu final_mode=True: Dùng toàn bộ siêu cạnh để train.
+    # Nếu final_mode=False: Chia 80% train, 20% val (dùng torch.randperm).
 
+    # TODO 15: Khởi tạo LinkNeighborLoader
+    # - Train Loader: shuffle=True, neg_sampling_ratio=1.0
+    # - Val Loader (nếu có): shuffle=False, neg_sampling_ratio=1.0
+    # Lưu ý: edge_label_index trỏ vào phần data đã split ở trên.
 
-    # TODO 3: Khởi tạo LinkNeighborLoader cho tập Train:
-    #         - Dùng train_data.
-    #         - edge_label_index: Sử dụng tất cả các cạnh trong tập train (train_data[target_edge_type].edge_index).
-    #         - neg_sampling_ratio=1.0.
-    #         - Có shuffle.
+    # --- KHỞI TẠO MODEL ---
+    # TODO 16: Khởi tạo GraphSAGE và convert sang Hetero (to_hetero).
+    # Input dim lấy từ data['person'].x.shape[1].
+    model = None 
+    optimizer = None
 
-    # TODO 4: Khởi tạo Model & Optimizer:
-    #         - Khởi tạo Base GNN (GraphSAGE) với hidden_dim và OUTPUT_DIM.
-    #         - Chuyển Base Model thành Hetero Model (to_hetero) và gửi sang device.
-    #         - Khởi tạo Optimizer (Adam) với learning rate (lr).
-
+    history = {"epoch": [], "loss": [], "val_auc": []}
     best_val_auc = 0
     best_model_state = None
 
-    # TODO 5: Vòng lặp huấn luyện chính (Loop):
+    print(f"\n🚀 Bắt đầu train (Hidden={hidden_dim}, LR={lr})...")
+
+    # --- TRAINING LOOP ---
     for epoch in range(1, epochs + 1):
+        # TODO 17: Gọi train_epoch
+        loss = 0 # Placeholder
+        
+        # Log history
+        history["epoch"].append(epoch)
+        history["loss"].append(float(loss))
 
-        # TODO 5a: Huấn luyện 1 epoch và cập nhật history/log.
-        #   - LOGIC TRAIN 1 EPOCH.
-        #   - Lưu lại loss và epoch
+        log_msg = f"Epoch {epoch:03d} | Loss: {loss:.4f}"
 
-
-        # TODO 5b: Nếu có val_loader:
-        #   - Đánh giá mô hình trên tập Val (val_auc).
-        #   - Lưu lại state_dict của mô hình nếu đây là kết quả AUC tốt nhất.
-
+        # TODO 18: Nếu có val_loader, gọi evaluate
+        # Cập nhật best_val_auc và best_model_state nếu kết quả tốt hơn.
+        
         print(log_msg)
 
-    # TODO 6: Xử lý lưu lịch sử và state cuối cùng khi Final Mode:
-    #   - Lưu lịch sử huấn luyện (history) file JSON vào TRAINING_HISTORY_PATH .
-    #   - Lấy state cuối cùng (thay vì best_model_state) và giả định AUC = 1.0.
+    # Xử lý final mode
+    if final_mode:
+        best_model_state = model.state_dict() if model else None
+        # Lưu history ra file JSON
+        pass
 
-    # TODO 7: Trả về AUC tốt nhất và state_dict tương ứng.
     return best_val_auc, best_model_state
 
 
 def run_grid_search():
-    """Chạy tìm kiếm tham số tối ưu và huấn luyện mô hình cuối cùng."""
-    # TODO 1: Chuẩn bị dữ liệu, thiết bị (device) và target_edge_type.
+    """Chạy Grid Search và Final Training."""
+    data = get_or_prepare_data()
+    if data is None: return
 
-    # TODO 2: Định nghĩa lưới tham số (param_grid) cho hidden_dim, lr, epochs.
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"🖥️ Running on: {device}")
+
+    # Grid Search Configs
     param_grid = {
         'hidden_dim': [64, 128],
-        'lr': [0.01, 0.001],
-        'epochs': [20, 50]
+        'lr': [0.01],
+        'epochs': [10]
     }
-
-    # TODO 3: Tạo tất cả các tổ hợp tham số từ lưới (sử dụng itertools.product).
+    
+    # Tạo combinations từ param_grid
     keys, values = zip(*param_grid.items())
     combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
 
     best_auc = 0
     best_params = None
 
-    print(f"🚀 Bắt đầu Grid Search trên {len(combinations)} cấu hình...")
+    # TODO 19: Grid Search Loop
+    # Duyệt qua các config trong combinations.
+    # Gọi train_one_config với final_mode=False.
+    # So sánh và lưu lại config tốt nhất (best_auc).
 
-    # TODO 4: Lặp qua từng cấu hình trong combinations:
-    #   - Gọi train_one_config (với final_mode=False) và lấy AUC.
-    #   - Cập nhật best_auc và best_params nếu tìm thấy kết quả tốt hơn.
-
-
-    print(f"\n✅ Grid Search Hoàn tất. Tốt nhất: {best_params} (AUC: {best_auc:.4f})")
-
-    print("\n🏋️ Bắt đầu Final Training (100 Epochs) với tham số tốt nhất...")
-    # TODO 5: Chạy Final Training với tham số tốt nhất:
-    #   - Cập nhật số epochs cho Final Training (ví dụ: 100).
-    #   - Gọi train_one_config với best_params và final_mode=True.
-    _, final_state = train_one_config(data, best_params, device, target_edge_type, final_mode=True)
-
-    # TODO 6: Lưu Model cuối cùng, gọi ModelRepository và lưu lại
-
-
+    print(f"\n🥇 Best Params: {best_params} (AUC: {best_auc:.4f})")
+    
+    # TODO 20: Final Training
+    # Cập nhật epochs lên cao hơn (ví dụ 50).
+    # Gọi train_one_config với final_mode=True dùng best_params.
+    # Lưu model (torch.save) vào MODEL_PATH.
 
 if __name__ == "__main__":
-    # TODO: Khởi động quá trình Grid Search và Final Training.
     run_grid_search()
