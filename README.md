@@ -78,5 +78,10 @@ The system evaluates node similarity and structural proximity to predict links. 
 * **/presentation**: Streamlit application files and UI components.
 * **/scripts**: Entry points for model training and ETL execution.
 * **/tools**: Utility scripts for data cleaning and batch processing.
-
+  
+### Credits
+* Developed by:
+* **Nguyen Minh Quang** - University of Science, VNU. https://github.com/minhquang0407
+* **Dinh Nhat Tan** - University of Science, VNU. https://github.com/Hecquyn175
+* **Nguyen Quoc Anh Quan** - University of Science, VNU. https://github.com/nqaq2005 
 ---
